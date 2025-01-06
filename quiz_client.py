@@ -625,7 +625,6 @@ class QuizGUI:
         
         # Charge le classement général par défaut
         self.load_leaderboard(None)
-    
 
 def main():
     root = tk.Tk()
