@@ -117,6 +117,19 @@ class QuizClient:
             'room_code': room_code,
             'user_id': self.user_id
         })
+    def get_room_players(self, room_code):
+        """Récupère la liste des joueurs dans un salon"""
+        return self.send_command('get_room_players', {
+            'room_code': room_code,
+            'user_id': self.user_id
+        })
+
+    def start_duel(self, room_code):
+        """Démarre une partie en mode duel"""
+        return self.send_command('start_duel', {
+            'room_code': room_code,
+            'user_id': self.user_id
+        })   
 class QuizGUI:
     def __init__(self, root):
         self.root = root
@@ -881,13 +894,86 @@ class QuizGUI:
         self.players_frame = tk.Frame(self.main_frame)
         self.players_frame.pack(pady=20)
         
+        # Bouton pour démarrer (visible uniquement pour l'hôte)
+        self.start_button = tk.Button(
+            self.main_frame,
+            text="Démarrer la partie",
+            command=lambda: self.start_duel(room_code),
+            font=('Arial', 14),
+            bg='#4CAF50',
+            fg='white',
+            state='disabled'  # Désactivé par défaut
+        )
+        self.start_button.pack(pady=10)
+        
         # Bouton quitter
         tk.Button(
             self.main_frame,
             text="Quitter le salon",
             command=self.show_duel_menu,
             font=('Arial', 12)
-        ).pack(pady=20)    
+        ).pack(pady=20)
+        
+        # Met à jour la liste des joueurs
+        self.update_player_list(room_code)
+        
+        # Rafraîchissement périodique
+        self.refresh_task = self.root.after(1000, lambda: self.update_player_list(room_code))
+
+    def update_player_list(self, room_code):
+        """Met à jour la liste des joueurs"""
+        response = self.client.get_room_players(room_code)
+        if response['status'] == 'success':
+            # Vérifie si la partie a démarré
+            if response.get('game_started'):
+                # Si la partie a démarré, initialise la partie pour ce joueur
+                self.client.current_game_id = response.get('game_id')
+                self.client.current_theme_id = response.get('theme_id')  # Ajout de cette ligne
+                if 'first_question' in response:
+                    self.show_question(response['first_question'])
+                return  # Arrête la mise à jour périodique car la partie a commencé
+            
+            # Si la partie n'a pas démarré, continue la mise à jour normale
+            for widget in self.players_frame.winfo_children():
+                widget.destroy()
+            
+            for player in response.get('players', []):
+                label_text = f"{player['username']}"
+                if player['is_host']:
+                    label_text += " (Hôte)"
+                    
+                tk.Label(
+                    self.players_frame,
+                    text=label_text,
+                    font=('Arial', 14),
+                    fg='#4CAF50' if player['is_host'] else 'black'
+                ).pack(pady=5)
+            
+            players_count = len(response.get('players', []))
+            if response.get('is_host'):
+                if self.start_button:
+                    if players_count >= 2:
+                        self.start_button.config(state='normal')
+                    else:
+                        self.start_button.config(state='disabled')
+            elif hasattr(self, 'start_button'):
+                self.start_button.pack_forget()
+            
+            if hasattr(self, 'refresh_task'):
+                self.root.after_cancel(self.refresh_task)
+            self.refresh_task = self.root.after(1000, lambda: self.update_player_list(room_code))
+
+    def start_duel(self, room_code):
+        """Démarre la partie en mode duel"""
+        response = self.client.start_duel(room_code)
+        if response['status'] == 'success':
+            messagebox.showinfo("Succès", "La partie va commencer !")
+            self.client.current_game_id = response.get('game_id')
+            # Démarre la partie avec la première question
+            if 'first_question' in response:
+                self.show_question(response['first_question'])
+        else:
+            messagebox.showerror("Erreur", response.get('message', "Impossible de démarrer la partie"))    
 def main():
     root = tk.Tk()
     app = QuizGUI(root)

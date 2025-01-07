@@ -90,6 +90,10 @@ class QuizServer:
                 return self.handle_create_duel_room(data)
             elif cmd_type == 'join_duel_room':
                 return self.handle_join_duel_room(data)
+            elif cmd_type == 'get_room_players':
+                return self.handle_get_room_players(data)
+            elif cmd_type == 'start_duel':
+                return self.handle_start_duel(data)
             else:
                 return {'status': 'error', 'message': 'Commande inconnue'}
         except Exception as e:
@@ -327,6 +331,117 @@ class QuizServer:
         except Exception as e:
             print(f"Erreur get_leaderboard: {e}")
             return {'status': 'error', 'message': str(e)}
+    def handle_get_room_players(self, data):
+        """Récupère la liste des joueurs dans un salon"""
+        try:
+            room_code = data.get('room_code')
+            if not room_code:
+                return {'status': 'error', 'message': 'Code de salon manquant'}
+            
+            room = self.duel_rooms.get(room_code)
+            if not room:
+                return {'status': 'error', 'message': 'Salon introuvable'}
+            
+            # Récupère les noms des joueurs
+            players = []
+            for player_id in room['players']:
+                self.db.cursor.execute('''
+                SELECT username FROM users WHERE user_id = ?
+                ''', (player_id,))
+                result = self.db.cursor.fetchone()
+                if result:
+                    players.append({
+                        'user_id': player_id,
+                        'username': result[0],
+                        'is_host': player_id == room['players'][0]
+                    })
+            
+            response = {
+                'status': 'success',
+                'players': players,
+                'is_host': data.get('user_id') == room['players'][0],
+                'game_started': room['status'] == 'playing',
+                'theme_id': room['theme_id']  # Ajout du theme_id
+            }
+            
+            # Si la partie a démarré, ajoute les informations nécessaires
+            if room['status'] == 'playing':
+                response['game_id'] = f"duel_{room_code}_{data.get('user_id')}_{int(time.time())}"
+                response['first_question'] = room['questions'][0] if room['questions'] else None
+                
+            return response
+        except Exception as e:
+            print(f"Erreur get_room_players: {e}")
+            return {'status': 'error', 'message': str(e)}  
+
+    def handle_start_duel(self, data):
+        """Démarre une partie en mode duel"""
+        try:
+            room_code = data.get('room_code')
+            user_id = data.get('user_id')
+            
+            room = self.duel_rooms.get(room_code)
+            if not room:
+                return {'status': 'error', 'message': 'Salon introuvable'}
+            
+            if user_id != room['players'][0]:
+                return {'status': 'error', 'message': 'Seul l\'hôte peut démarrer la partie'}
+            
+            if len(room['players']) < 2:
+                return {'status': 'error', 'message': 'Il faut au moins 2 joueurs pour démarrer'}
+            
+            room['status'] = 'playing'
+            # Initialisation des questions comme dans une partie normale
+            questions = self.db.get_questions_for_game(room['theme_id'])
+            formatted_questions = []
+            used_questions = set()
+
+            # Ajoute les questions selon leur type
+            if QuestionType.OPEN in questions:
+                formatted_questions.extend(self.add_unique_questions(questions[QuestionType.OPEN], 5, used_questions))
+            if QuestionType.QUAD in questions:
+                formatted_questions.extend(self.add_unique_questions(questions[QuestionType.QUAD], 10, used_questions))
+            if QuestionType.DUAL in questions:
+                formatted_questions.extend(self.add_unique_questions(questions[QuestionType.DUAL], 20, used_questions))
+
+            random.shuffle(formatted_questions)
+            
+            # Initialise la partie pour chaque joueur
+            for player_id in room['players']:
+                game_id = f"duel_{room_code}_{player_id}_{int(time.time())}"
+                self.active_games[game_id] = {
+                    'questions': formatted_questions.copy(),
+                    'current_index': 0,
+                    'score': 0,
+                    'user_id': player_id,
+                    'room_code': room_code,
+                    'answers_history': [],
+                    'start_time': time.time()
+                }
+                room['scores'][player_id] = 0
+
+            room['questions'] = formatted_questions
+            room['current_question_index'] = 0
+            
+            return {
+                'status': 'success',
+                'message': 'La partie va commencer',
+                'first_question': formatted_questions[0],
+                'game_id': f"duel_{room_code}_{user_id}_{int(time.time())}"
+            }
+        except Exception as e:
+            print(f"Erreur start_duel: {e}")
+            return {'status': 'error', 'message': str(e)}
+
+    def add_unique_questions(self, question_list, count, used_questions):
+        """Helper pour ajouter des questions uniques"""
+        added = []
+        for q in question_list:
+            question_text = q[4]
+            if question_text not in used_questions and len(added) < count:
+                used_questions.add(question_text)
+                added.append(q)
+        return added       
 
 def initialize_test_data(db):
     """Initialise les données de test"""
