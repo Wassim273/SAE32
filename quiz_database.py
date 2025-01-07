@@ -188,6 +188,9 @@ class QuizDatabase:
             LIMIT ?
             ''', (limit,))
         return self.cursor.fetchall()
+    def get_leaderboard(self, theme_id=None, limit=10):
+        """Récupère le classement en utilisant get_top_scores"""
+        return self.get_top_scores(theme_id, limit)
 
     def close(self):
         """Ferme la connexion à la base de données"""

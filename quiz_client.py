@@ -70,6 +70,8 @@ class QuizClient:
 
     def start_game(self, theme_id):
         """Démarre une nouvelle partie"""
+        self.current_game_id = None  # Réinitialise l'ID de partie
+        self.current_theme_id = theme_id  # Stocke le thème actuel
         return self.send_command('start_game', {
             'theme_id': theme_id,
             'user_id': self.user_id
@@ -79,6 +81,7 @@ class QuizClient:
         """Envoie une réponse au serveur"""
         return self.send_command('submit_answer', {
             'game_id': self.current_game_id,
+            'theme_id': self.current_theme_id,
             'answer': answer_data.get('answer') if isinstance(answer_data, dict) else answer_data,
             'time_taken': answer_data.get('time_taken', 30) if isinstance(answer_data, dict) else 30
         })
@@ -101,7 +104,19 @@ class QuizClient:
         return self.send_command('get_leaderboard', {
             'theme_id': theme_id
         })
+    def create_duel_room(self, theme_id):
+        """Crée un salon de duel"""
+        return self.send_command('create_duel_room', {
+            'theme_id': theme_id,
+            'user_id': self.user_id
+        })
 
+    def join_duel_room(self, room_code):
+        """Rejoint un salon de duel"""
+        return self.send_command('join_duel_room', {
+            'room_code': room_code,
+            'user_id': self.user_id
+        })
 class QuizGUI:
     def __init__(self, root):
         self.root = root
@@ -146,6 +161,14 @@ class QuizGUI:
             text="Voir les classements",
             command=self.show_leaderboard,
             font=('Arial', 12)
+        ).pack(side=tk.RIGHT, padx=20)
+        tk.Button(
+            header_frame,
+            text="Mode Duel",
+            command=self.show_duel_menu,
+            font=('Arial', 12),
+            bg='#2196F3',  # Bleu pour différencier
+            fg='white'
         ).pack(side=tk.RIGHT, padx=20)
 
         # Message de bienvenue
@@ -576,11 +599,11 @@ class QuizGUI:
             )
             self.show_theme_selection()
 
-    def show_leaderboard(self):
+    def show_leaderboard(self, theme_id=None):
         """Affiche le classement"""
         self.clear_frame()
         
-        # En-tête
+        # En-tête avec titre
         header_frame = tk.Frame(self.main_frame)
         header_frame.pack(fill='x', pady=20)
         
@@ -588,44 +611,283 @@ class QuizGUI:
             header_frame,
             text="Classement",
             font=('Arial', 24, 'bold')
-        ).pack(side=tk.LEFT)
+        ).pack(side=tk.LEFT, padx=20)
+
+        # Boutons de filtres par thème
+        filter_frame = tk.Frame(self.main_frame)
+        filter_frame.pack(pady=10)
         
         tk.Button(
-            header_frame,
+            filter_frame,
+            text="Classement Général",
+            command=lambda: self.show_leaderboard(None),
+            font=('Arial', 11),
+            bg='#4CAF50' if theme_id is None else '#f0f0f0',
+            fg='white' if theme_id is None else 'black'
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Boutons pour chaque thème
+        themes_response = self.client.get_themes()
+        if themes_response['status'] == 'success':
+            for tid, theme_name in themes_response['themes']:
+                tk.Button(
+                    filter_frame,
+                    text=theme_name,
+                    command=lambda t=tid: self.show_leaderboard(t),
+                    font=('Arial', 11),
+                    bg='#4CAF50' if theme_id == tid else '#f0f0f0',
+                    fg='white' if theme_id == tid else 'black'
+                ).pack(side=tk.LEFT, padx=5)
+
+        # Tableau des scores
+        scores_frame = tk.Frame(self.main_frame)
+        scores_frame.pack(pady=20, padx=20)
+        
+        # En-têtes
+        columns = ["Position", "Joueur", "Score", "Temps"]
+            
+        for col, header in enumerate(columns):
+            tk.Label(
+                scores_frame,
+                text=header,
+                font=('Arial', 12, 'bold')
+            ).grid(row=0, column=col, padx=10, sticky='w')
+        
+        # Récupération des scores
+        response = self.client.get_leaderboard(theme_id)
+        if response['status'] == 'success':
+            scores = response.get('scores', [])
+            
+            if not scores:
+                tk.Label(
+                    scores_frame,
+                    text="Aucun score enregistré",
+                    font=('Arial', 12),
+                    fg='gray'
+                ).grid(row=1, column=0, columnspan=len(columns), pady=20)
+            else:
+                for i, score in enumerate(scores, 1):
+                    # Position
+                    tk.Label(
+                        scores_frame,
+                        text=str(i),
+                        font=('Arial', 12)
+                    ).grid(row=i, column=0, padx=10, pady=5, sticky='w')
+                    
+                    # Username
+                    tk.Label(
+                        scores_frame,
+                        text=str(score[0]),  # username
+                        font=('Arial', 12)
+                    ).grid(row=i, column=1, padx=10, pady=5, sticky='w')
+                    
+                    # Score (index 2 pour les scores par thème, index 2 pour le classement général)
+                    tk.Label(
+                        scores_frame,
+                        text=str(score[1] if theme_id is not None else score[2]),  # score
+                        font=('Arial', 12)
+                    ).grid(row=i, column=2, padx=10, pady=5, sticky='w')
+                    
+                    # Temps (index 2 pour les scores par thème, index 3 pour le classement général)
+                    tk.Label(
+                        scores_frame,
+                        text=f"{score[2] if theme_id is not None else score[3]:.1f}s",  # temps
+                        font=('Arial', 12)
+                    ).grid(row=i, column=3, padx=10, pady=5, sticky='w')
+        else:
+            tk.Label(
+                scores_frame,
+                text="Impossible de récupérer les scores",
+                font=('Arial', 12),
+                fg='red'
+            ).grid(row=1, column=0, columnspan=len(columns), pady=20)
+        
+        # Bouton retour
+        tk.Button(
+            self.main_frame,
+            text="Retour",
+            command=self.show_theme_selection,
+            font=('Arial', 14),
+            width=20
+        ).pack(pady=20)
+    def show_duel_menu(self):
+        """Affiche le menu des duels"""
+        self.clear_frame()
+        
+        # Titre
+        tk.Label(
+            self.main_frame,
+            text="Mode Duel",
+            font=('Arial', 24, 'bold')
+        ).pack(pady=20)
+        
+        # Boutons pour créer ou rejoindre
+        button_frame = tk.Frame(self.main_frame)
+        button_frame.pack(pady=30)
+        
+        tk.Button(
+            button_frame,
+            text="Créer un salon",
+            command=self.show_create_duel_room,
+            font=('Arial', 14),
+            width=20,
+            bg='#4CAF50',
+            fg='white'
+        ).pack(pady=10)
+        
+        tk.Button(
+            button_frame,
+            text="Rejoindre un salon",
+            command=self.show_join_duel_room,
+            font=('Arial', 14),
+            width=20
+        ).pack(pady=10)
+        
+        # Bouton retour
+        tk.Button(
+            self.main_frame,
             text="Retour",
             command=self.show_theme_selection,
             font=('Arial', 12)
-        ).pack(side=tk.RIGHT)
+        ).pack(pady=20)
+
+    def show_create_duel_room(self):
+        """Affiche l'écran de création de salon"""
+        self.clear_frame()
         
-        # Frame pour les filtres de thèmes
-        theme_frame = tk.Frame(self.main_frame)
-        theme_frame.pack(fill='x', pady=10)
+        tk.Label(
+            self.main_frame,
+            text="Créer un salon de duel",
+            font=('Arial', 24, 'bold')
+        ).pack(pady=20)
         
-        tk.Button(
-            theme_frame,
-            text="Tous les thèmes",
-            command=lambda: self.load_leaderboard(None),
-            font=('Arial', 11)
-        ).pack(side=tk.LEFT, padx=5)
+        # Sélection du thème
+        themes_frame = tk.Frame(self.main_frame)
+        themes_frame.pack(pady=20)
         
-        # Boutons pour chaque thème
+        tk.Label(
+            themes_frame,
+            text="Choisissez un thème :",
+            font=('Arial', 14)
+        ).pack(pady=10)
+        
         response = self.client.get_themes()
         if response['status'] == 'success':
             for theme_id, theme_name in response['themes']:
                 tk.Button(
-                    theme_frame,
+                    themes_frame,
                     text=theme_name,
-                    command=lambda t=theme_id: self.load_leaderboard(t),
-                    font=('Arial', 11)
-                ).pack(side=tk.LEFT, padx=5)
+                    command=lambda t=theme_id: self.create_duel_room(t),
+                    font=('Arial', 12),
+                    width=30
+                ).pack(pady=5)
         
-        # Frame pour le tableau des scores
-        self.scores_frame = ttk.Frame(self.main_frame)
-        self.scores_frame.pack(fill='both', expand=True, pady=20)
-        
-        # Charge le classement général par défaut
-        self.load_leaderboard(None)
+        # Bouton retour
+        tk.Button(
+            self.main_frame,
+            text="Retour",
+            command=self.show_duel_menu,
+            font=('Arial', 12)
+        ).pack(pady=20)
 
+    def show_join_duel_room(self):
+        """Affiche l'écran pour rejoindre un salon"""
+        self.clear_frame()
+        
+        tk.Label(
+            self.main_frame,
+            text="Rejoindre un salon",
+            font=('Arial', 24, 'bold')
+        ).pack(pady=20)
+        
+        # Entrée du code
+        entry_frame = tk.Frame(self.main_frame)
+        entry_frame.pack(pady=30)
+        
+        tk.Label(
+            entry_frame,
+            text="Code du salon :",
+            font=('Arial', 14)
+        ).pack()
+        
+        code_entry = tk.Entry(entry_frame, font=('Arial', 16), width=10)
+        code_entry.pack(pady=10)
+        
+        tk.Button(
+            entry_frame,
+            text="Rejoindre",
+            command=lambda: self.join_duel_room(code_entry.get()),
+            font=('Arial', 12),
+            bg='#4CAF50',
+            fg='white'
+        ).pack(pady=10)
+        
+        # Bouton retour
+        tk.Button(
+            self.main_frame,
+            text="Retour",
+            command=self.show_duel_menu,
+            font=('Arial', 12)
+        ).pack(pady=20)
+
+    def create_duel_room(self, theme_id):
+        """Crée un salon de duel"""
+        response = self.client.create_duel_room(theme_id)
+        if response['status'] == 'success':
+            code = response['room_code']
+            messagebox.showinfo(
+                "Salon créé",
+                f"Votre code de salon est : {code}\n" +
+                "Partagez ce code avec vos amis pour qu'ils puissent vous rejoindre!"
+            )
+            self.show_duel_waiting_room(code)
+        else:
+            messagebox.showerror("Erreur", "Impossible de créer le salon")
+            self.show_duel_menu()
+
+    def join_duel_room(self, room_code):
+        """Rejoint un salon de duel"""
+        if not room_code:
+            messagebox.showerror("Erreur", "Veuillez entrer un code")
+            return
+            
+        response = self.client.join_duel_room(room_code)
+        if response['status'] == 'success':
+            self.show_duel_waiting_room(room_code)
+        else:
+            messagebox.showerror(
+                "Erreur",
+                response.get('message', "Impossible de rejoindre le salon")
+            )
+
+    def show_duel_waiting_room(self, room_code):
+        """Affiche la salle d'attente du duel"""
+        self.clear_frame()
+        
+        tk.Label(
+            self.main_frame,
+            text=f"Salon de duel - Code : {room_code}",
+            font=('Arial', 24, 'bold')
+        ).pack(pady=20)
+        
+        # Liste des joueurs
+        tk.Label(
+            self.main_frame,
+            text="Joueurs présents :",
+            font=('Arial', 16)
+        ).pack(pady=10)
+        
+        # Frame pour la liste des joueurs
+        self.players_frame = tk.Frame(self.main_frame)
+        self.players_frame.pack(pady=20)
+        
+        # Bouton quitter
+        tk.Button(
+            self.main_frame,
+            text="Quitter le salon",
+            command=self.show_duel_menu,
+            font=('Arial', 12)
+        ).pack(pady=20)    
 def main():
     root = tk.Tk()
     app = QuizGUI(root)
