@@ -344,35 +344,51 @@ class QuizServer:
             
             # Récupère les noms des joueurs
             players = []
-            for player_id in room['players']:
-                self.db.cursor.execute('''
-                SELECT username FROM users WHERE user_id = ?
-                ''', (player_id,))
-                result = self.db.cursor.fetchone()
-                if result:
-                    players.append({
-                        'user_id': player_id,
-                        'username': result[0],
-                        'is_host': player_id == room['players'][0]
-                    })
+            # Crée un nouveau curseur pour cette opération
+            with self.db.conn:
+                cursor = self.db.conn.cursor()
+                for player_id in room['players']:
+                    cursor.execute('''
+                    SELECT username FROM users WHERE user_id = ?
+                    ''', (player_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        players.append({
+                            'user_id': player_id,
+                            'username': result[0],
+                            'is_host': player_id == room['players'][0]
+                        })
             
             response = {
                 'status': 'success',
                 'players': players,
                 'is_host': data.get('user_id') == room['players'][0],
                 'game_started': room['status'] == 'playing',
-                'theme_id': room['theme_id']  # Ajout du theme_id
+                'theme_id': room['theme_id']
             }
             
             # Si la partie a démarré, ajoute les informations nécessaires
             if room['status'] == 'playing':
-                response['game_id'] = f"duel_{room_code}_{data.get('user_id')}_{int(time.time())}"
-                response['first_question'] = room['questions'][0] if room['questions'] else None
+                game_id = f"duel_{room_code}_{data.get('user_id')}_{int(time.time())}"
+                if data.get('user_id') in room['players']:  # Vérifie que le joueur est dans la partie
+                    if game_id not in self.active_games:  # Crée le jeu s'il n'existe pas déjà
+                        self.active_games[game_id] = {
+                            'questions': room['questions'].copy(),
+                            'current_index': 0,
+                            'score': 0,
+                            'user_id': data.get('user_id'),
+                            'room_code': room_code,
+                            'answers_history': [],
+                            'start_time': time.time(),
+                            'theme_id': room['theme_id']
+                        }
+                    response['game_id'] = game_id
+                    response['first_question'] = room['questions'][0] if room['questions'] else None
                 
             return response
         except Exception as e:
             print(f"Erreur get_room_players: {e}")
-            return {'status': 'error', 'message': str(e)}  
+            return {'status': 'error', 'message': str(e)}
 
     def handle_start_duel(self, data):
         """Démarre une partie en mode duel"""
@@ -396,7 +412,6 @@ class QuizServer:
             formatted_questions = []
             used_questions = set()
 
-            # Ajoute les questions selon leur type
             if QuestionType.OPEN in questions:
                 formatted_questions.extend(self.add_unique_questions(questions[QuestionType.OPEN], 5, used_questions))
             if QuestionType.QUAD in questions:
@@ -416,7 +431,8 @@ class QuizServer:
                     'user_id': player_id,
                     'room_code': room_code,
                     'answers_history': [],
-                    'start_time': time.time()
+                    'start_time': time.time(),
+                    'theme_id': room['theme_id']  # Ajout du theme_id ici
                 }
                 room['scores'][player_id] = 0
 
@@ -427,7 +443,8 @@ class QuizServer:
                 'status': 'success',
                 'message': 'La partie va commencer',
                 'first_question': formatted_questions[0],
-                'game_id': f"duel_{room_code}_{user_id}_{int(time.time())}"
+                'game_id': f"duel_{room_code}_{user_id}_{int(time.time())}",
+                'theme_id': room['theme_id']  # Ajout du theme_id ici aussi
             }
         except Exception as e:
             print(f"Erreur start_duel: {e}")

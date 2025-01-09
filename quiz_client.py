@@ -79,12 +79,18 @@ class QuizClient:
 
     def submit_answer(self, answer_data):
         """Envoie une réponse au serveur"""
-        return self.send_command('submit_answer', {
+        # Ajoute l'ID de partie et le thème à la requête
+        request_data = {
             'game_id': self.current_game_id,
-            'theme_id': self.current_theme_id,
             'answer': answer_data.get('answer') if isinstance(answer_data, dict) else answer_data,
             'time_taken': answer_data.get('time_taken', 30) if isinstance(answer_data, dict) else 30
-        })
+        }
+        
+        # Ajoute le theme_id si disponible (important pour le mode duel)
+        if hasattr(self, 'current_theme_id'):
+            request_data['theme_id'] = self.current_theme_id
+            
+        return self.send_command('submit_answer', request_data)
 
     def get_game_summary(self):
         """Récupère le résumé de la partie"""
