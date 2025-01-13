@@ -4,6 +4,15 @@ import json
 from quiz_database import QuizDatabase, QuestionType
 import time
 import random
+import unicodedata
+
+# Fonction pour normaliser une chaîne (supprime les accents et met en minuscules)
+def normalize_string(input_string):
+    return unicodedata.normalize('NFD', input_string).encode('ascii', 'ignore').decode('utf-8').lower()
+
+# Fonction pour vérifier si la réponse est correcte
+def is_correct_answer(user_answer, correct_answer):
+    return normalize_string(user_answer) == normalize_string(correct_answer)
 
 class QuizServer:
     def __init__(self, host='localhost', port=12345):
@@ -196,7 +205,7 @@ class QuizServer:
                 # Vérifie la réponse (insensible à la casse)
                 is_correct = False
                 if current_question[2] == QuestionType.OPEN.value:
-                    is_correct = answer.lower().strip() == current_question[5].lower().strip()
+                    is_correct = is_correct_answer(answer, current_question[5])
                 else:
                     is_correct = answer.lower() == current_question[5].lower()
                 
@@ -233,7 +242,7 @@ class QuizServer:
         except Exception as e:
             print(f"Erreur submit_answer: {e}")
             return {'status': 'error', 'message': str(e)}
-
+        
     def handle_get_game_summary(self, data):
         """Récupère le résumé d'une partie"""
         try:
@@ -1232,6 +1241,7 @@ def initialize_test_data(db):
 
         ]
     }
+
     # Ajout des questions dans la base de données
     for theme_name, questions in test_questions.items():
         theme_id = theme_ids[theme_name]
