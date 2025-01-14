@@ -47,11 +47,11 @@ python quiz_client.py
 ```
 3. Suivez les instructions à l'écran pour vous connecter, choisir un thème et commencer à jouer.
 
-On peut aussi tout simplement accéder à la page web avec le lien suivant : 
+
 
 ## Contributions
 Les contributions sont les bienvenues ! Si vous souhaitez améliorer ce projet, vous pouvez :
-- Soumettre un pull request.
+- Soumettre un pull request. github : https://github.com/Wassim273/SAE32
 - Signaler des problèmes dans l'onglet [Issues](https://github.com/votre-repo/quiz-jeu/issues).
 
 ## Licence
